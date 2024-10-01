@@ -1,65 +1,45 @@
-"""
-Copyright (c) 2020, Battelle Memorial Institute
-All rights reserved.
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-The views and conclusions contained in the software and documentation are those
-of the authors and should not be interpreted as representing official policies,
-either expressed or implied, of the FreeBSD Project.
-This material was prepared as an account of work sponsored by an agency of the
-United States Government. Neither the United States Government nor the United
-States Department of Energy, nor Battelle, nor any of their employees, nor any
-jurisdiction or organization that has cooperated in th.e development of these
-materials, makes any warranty, express or implied, or assumes any legal
-liability or responsibility for the accuracy, completeness, or usefulness or
-any information, apparatus, product, software, or process disclosed, or
-represents that its use would not infringe privately owned rights.
-Reference herein to any specific commercial product, process, or service by
-trade name, trademark, manufacturer, or otherwise does not necessarily
-constitute or imply its endorsement, recommendation, or favoring by the
-United States Government or any agency thereof, or Battelle Memorial Institute.
-The views and opinions of authors expressed herein do not necessarily state or
-reflect those of the United States Government or any agency thereof.
+# -*- coding: utf-8 -*- {{{
+# ===----------------------------------------------------------------------===
+#
+#                 Installable Component of Eclipse VOLTTRON
+#
+# ===----------------------------------------------------------------------===
+#
+# Copyright 2022 Battelle Memorial Institute
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not
+# use this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+# ===----------------------------------------------------------------------===
+# }}}
 
-PACIFIC NORTHWEST NATIONAL LABORATORY
-operated by BATTELLE for the UNITED STATES DEPARTMENT OF ENERGY
-under Contract DE-AC05-76RL01830
-"""
-
+import gevent
+import importlib.metadata
 import logging
 import sys
+
 from collections import defaultdict
-import gevent
 from sympy import symbols
 from sympy.logic.boolalg import BooleanFalse, BooleanTrue
 from sympy.parsing.sympy_parser import parse_expr
 
-from volttron.platform.agent import utils
-from volttron.platform.agent.utils import format_timestamp, get_aware_utc_now
-from volttron.platform.scheduling import cron
-from volttron.platform.messaging import topics
-from volttron.platform.agent.math_utils import mean
-from volttron.platform.agent.utils import setup_logging
-from volttron.platform.vip.agent import Agent
-from volttron.platform.jsonrpc import RemoteError
+from volttron.client.messaging import topics
+from volttron.client.vip.agent import Agent
+from volttron.utils import format_timestamp, get_aware_utc_now, load_config, setup_logging, vip_main
+from volttron.utils.jsonrpc import RemoteError
+from volttron.utils.math_utils import mean
+from volttron.utils.scheduling import cron
 
-
-__version__ = "1.0"
+__version__ = importlib.metadata.version("mypackage")
 
 setup_logging()
 LOG = logging.getLogger(__name__)
@@ -379,7 +359,7 @@ class ProactiveDiagnostics(Agent):
         # If a configuration file is used the agent will utilize
         # this for the default configuration.  If a config is in
         # config store this will override the config file.
-        file_config = utils.load_config(config_path)
+        file_config = load_config(config_path)
         default_config = {
             "campus": "campus",
             "actuator": "platform.actuator",
@@ -611,7 +591,7 @@ class ProactiveDiagnostics(Agent):
 def main():
     """Main method called by the aip."""
     try:
-        utils.vip_main(ProactiveDiagnostics, version=__version__)
+        vip_main(ProactiveDiagnostics, version=__version__)
     except Exception as exception:
         LOG.exception("unhandled exception")
         LOG.error(repr(exception))
