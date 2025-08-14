@@ -32,17 +32,29 @@ from sympy import symbols
 from sympy.logic.boolalg import BooleanFalse, BooleanTrue
 from sympy.parsing.sympy_parser import parse_expr
 
-from volttron.client.messaging import topics
-from volttron.client.vip.agent import Agent
-from volttron.utils import format_timestamp, get_aware_utc_now, load_config, setup_logging, vip_main
-from volttron.utils.jsonrpc import RemoteError
-from volttron.utils.math_utils import mean
-from volttron.utils.scheduling import cron
+
+from importlib.metadata import distribution, PackageNotFoundError
+try:
+    distribution('volttron-core')
+    from volttron.client.messaging import topics
+    from volttron.client.vip.agent import Agent
+    from volttron.utils import format_timestamp, get_aware_utc_now, load_config, vip_main
+    from volttron.utils.jsonrpc import RemoteError
+    from volttron.utils.math_utils import mean
+    from volttron.utils.scheduling import cron
+except PackageNotFoundError:
+    from volttron.platform.agent.utils import load_config, setup_logging, vip_main
+    from volttron.platform.agent.utils import format_timestamp, get_aware_utc_now
+    from volttron.platform.scheduling import cron
+    from volttron.platform.messaging import topics
+    from volttron.platform.agent.math_utils import mean
+    from volttron.platform.vip.agent import Agent
+    from volttron.platform.jsonrpc import RemoteError
 
 __version__ = importlib.metadata.version("mypackage")
 
 setup_logging()
-LOG = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 
 
 class Diagnostic:
@@ -68,9 +80,9 @@ class Diagnostic:
         # the external_platform_discovery.json file
         # in VOLTTRON_HOME (~/.volttron by defualt).
         self.remote = parent.remote_platform
-        LOG.debug("Configure: %s", self.name)
+        _log.debug("Configure: %s", self.name)
         self.control_parameters = config.get("control")
-        LOG.debug("Configure control: %s", self.control_parameters)
+        _log.debug("Configure control: %s", self.control_parameters)
         # The fault_code can be a string or number
         # associated with a fault for the diagnostic.
         self.fault_code = config.get("fault_code")
@@ -96,7 +108,7 @@ class Diagnostic:
         set by the ProactiveDiagnostics run_schedule parameter.
         :return: None
         """
-        LOG.debug("Run diagnostic: %s", self.name)
+        _log.debug("Run diagnostic: %s", self.name)
         # Each diagnostic may have multiple control steps
         # in the proactive diagnostic process.
         for diagnostic in self.control_parameters:
@@ -116,7 +128,7 @@ class Diagnostic:
                     # If revert_action != restore then it is assumed the the
                     # device can be released using None (BACnet device).
                     if self.parent.revert_action == "restore":
-                        LOG.debug("Using get point to obtain restore value!")
+                        _log.debug("Using get point to obtain restore value!")
                         value = self.vip.rpc.call(
                             self.parent.actuator,
                             "get_point",
@@ -124,10 +136,10 @@ class Diagnostic:
                             point_to_set).get(timeout=5)
                         revert_action[point_to_set] = value
                     else:
-                        LOG.debug("Using release to write None!")
+                        _log.debug("Using release to write None!")
                         revert_action[point_to_set] = None
                     try:
-                        LOG.debug("Control: %s - "
+                        _log.debug("Control: %s - "
                                   "value: %s", point_to_set, value)
                         result = self.vip.rpc.call(
                             self.parent.actuator,
@@ -136,14 +148,14 @@ class Diagnostic:
                             point_to_set,
                             value,
                             priority=8).get(timeout=5)
-                        LOG.debug("Actuator %s "
+                        _log.debug("Actuator %s "
                                   "result %s", point_to_set, result)
                     except RemoteError as ex:
-                        LOG.warning("Failed to set point %s"
+                        _log.warning("Failed to set point %s"
                                     "(RemoteError): %s", point_to_set, str(ex))
                         self.restore(revert_action)
                         return
-            LOG.debug("Control steady state: %s", steady_state_interval)
+            _log.debug("Control steady state: %s", steady_state_interval)
             # Sleep and allow steady state conditions to be achieved.
             gevent.sleep(steady_state_interval)
             # 10 data points will be queried for analysis
@@ -154,7 +166,7 @@ class Diagnostic:
             try:
                 self.analysis(diagnostic["analysis"], data_query_interval)
             except KeyError as ex:
-                LOG.warning("Diagnostic name: %s -- analysis dictionary "
+                _log.warning("Diagnostic name: %s -- analysis dictionary "
                             "is missing for diagnostic - %s", self.name, ex)
         self.report()
         self.restore(revert_action)
@@ -180,11 +192,11 @@ class Diagnostic:
         rules = analysis_parameters.get("rule_list")
         inconclusive = analysis_parameters.get("inconclusive_conditions_list")
         if rules is None or not rules:
-            LOG.warning("Diagnostic name: %s is missing rule to evaluate "
+            _log.warning("Diagnostic name: %s is missing rule to evaluate "
                         "fault condition check configuration file!", self.name)
             return
         if not all(isinstance(rule, str) for rule in rules):
-            LOG.warning("Rule for diagnostic name %s must be a string, '"
+            _log.warning("Rule for diagnostic name %s must be a string, '"
                         "fix configuration!", self.name)
             return
         rule_list = [parse_expr(op) for op in rules]
@@ -205,7 +217,7 @@ class Diagnostic:
         rule_data = []
         for key, value in data.items():
             rule_data.append((key, mean(value)))
-        LOG.debug("Diagnostic data : %s", rule_data)
+        _log.debug("Diagnostic data : %s", rule_data)
         # Support for multi-condition fault detection
         if self.inconclusive_diagnostic_check(inconclusive_list,
                                               rule_data):
@@ -213,23 +225,23 @@ class Diagnostic:
             return
 
         results = [rule.subs(rule_data) for rule in rule_list]
-        LOG.debug("Results type : %s", type(results[0]))
+        _log.debug("Results type : %s", type(results[0]))
         # Verify that all items in results evaluate to True or False.
         # Incorrectly named points or improper sympy syntax could
         # result in this occurring
         # https://docs.sympy.org/latest/modules/parsing.html
         if not all(isinstance(evaluation, (BooleanFalse, BooleanTrue))
                    for evaluation in results):
-            LOG.warning("Evaluation did not produce True or False "
+            _log.warning("Evaluation did not produce True or False "
                         "required for indicating fault/no-fault")
-            LOG.warning("Check sympy syntax in the analysis rule_list "
+            _log.warning("Check sympy syntax in the analysis rule_list "
                         "and verify that data is available in the VOLTTRON "
                         "driver for that device/point")
             result = False
         else:
             result = False not in results
         self.evaluations.append(result)
-        LOG.debug("Analysis result : %s", result)
+        _log.debug("Analysis result : %s", result)
 
     @staticmethod
     def inconclusive_diagnostic_check(inconclusive_list, data):
@@ -245,19 +257,19 @@ class Diagnostic:
         # conditions that could lead to an inconclusive diagnostic
         if not inconclusive_list:
             return False
-        LOG.debug("Diagnostic prerequisites : %s", inconclusive_list)
+        _log.debug("Diagnostic prerequisites : %s", inconclusive_list)
         # Evaluate each condition with the device data
         inconclusive_results = [con.subs(data) for con in inconclusive_list]
-        LOG.debug("Evaluation of prerequisites : %s", inconclusive_results)
+        _log.debug("Evaluation of prerequisites : %s", inconclusive_results)
         # Verify that all the conditions evaluated to booleans.
         # A non-boolean value means there was a problem evaluating the
         # sympy expression.
         if not all(isinstance(evaluation, (BooleanFalse, BooleanTrue))
                    for evaluation in inconclusive_results):
-            LOG.warning("Inconclusive checks did not produce "
+            _log.warning("Inconclusive checks did not produce "
                         "True or False data type: %s",
                         type(inconclusive_list[0]))
-            LOG.warning("Check sympy syntax in the analysis dict for "
+            _log.warning("Check sympy syntax in the analysis dict for "
                         "inconclusive_conditions_list.  Verify "
                         "that data is available in the VOLTTRON "
                         "driver for that device/point")
@@ -279,7 +291,7 @@ class Diagnostic:
         }
         analysis = {}
         if -1 in self.evaluations:
-            LOG.debug("Diagnostic %s resulted in inconclusive result",
+            _log.debug("Diagnostic %s resulted in inconclusive result",
                       self.name)
             analysis = {"result": -1}
             for publish_topic in self.analysis_topic:
@@ -292,20 +304,20 @@ class Diagnostic:
 
         if self.fault_condition == "any":
             if False in self.evaluations:
-                LOG.debug("%s - no fault detected", self.name)
+                _log.debug("%s - no fault detected", self.name)
                 analysis = {"result": self.non_fault_code}
             else:
-                LOG.debug("%s - fault detected", self.name)
+                _log.debug("%s - fault detected", self.name)
                 analysis = {"result": self.fault_code}
         # Multiple control steps and analysis can occur for each diagnostic
         # if self.fault_condition == "any"" then any step where a
         # fault condition is detected will lead to reporting a fault.
         else:
             if True in self.evaluations:
-                LOG.debug("%s - fault detected", self.name)
+                _log.debug("%s - fault detected", self.name)
                 analysis = {"result": self.fault_code}
             else:
-                LOG.debug("%s - no fault detected", self.name)
+                _log.debug("%s - no fault detected", self.name)
                 analysis = {"result": self.non_fault_code}
 
         # Reinitialize evaluations list for use in next diagnostic run.
@@ -326,7 +338,7 @@ class Diagnostic:
         """
         for point_to_set, value in revert_action.items():
             try:
-                LOG.debug("Revert control for "
+                _log.debug("Revert control for "
                           "%s with value %s", point_to_set, value)
                 result = self.vip.rpc.call(
                     self.parent.actuator,
@@ -334,10 +346,10 @@ class Diagnostic:
                     "proactive",
                     point_to_set,
                     value, priority=8).get(timeout=5)
-                LOG.debug("Actuator %s "
+                _log.debug("Actuator %s "
                           "result %s", point_to_set, result)
             except RemoteError as ex:
-                LOG.warning("Failed to revert point "
+                _log.warning("Failed to revert point "
                             "%s (RemoteError): %s", point_to_set, str(ex))
                 continue
 
@@ -404,7 +416,7 @@ class ProactiveDiagnostics(Agent):
 
         :return: None
         """
-        LOG.debug("Update %s for %s", config_name, self.core.identity)
+        _log.debug("Update %s for %s", config_name, self.core.identity)
         config = self.default_config.copy()
         config.update(contents)
         if action == "NEW" or "UPDATE":
@@ -430,9 +442,9 @@ class ProactiveDiagnostics(Agent):
             self.base_rpc_path = []
             self.device_topics_list = []
             if not device_list:
-                LOG.warning("Configuration ERROR: no device_list "
+                _log.warning("Configuration ERROR: no device_list "
                             "configured for diagnostic!")
-                LOG.warning("Check configuration and update "
+                _log.warning("Check configuration and update "
                             "device_list!")
 
             for device in device_list:
@@ -448,9 +460,9 @@ class ProactiveDiagnostics(Agent):
 
             diagnostics = config.get("diagnostics", [])
             if not diagnostics:
-                LOG.warning("Configuration ERROR diagnostics"
+                _log.warning("Configuration ERROR diagnostics"
                             "information is not configured!")
-                LOG.warning("Diagnostic cannot be performed, "
+                _log.warning("Diagnostic cannot be performed, "
                             "Update configuration!")
 
             self.diagnostics = diagnostics
@@ -461,7 +473,7 @@ class ProactiveDiagnostics(Agent):
             if prerequisites:
                 self.initialize_prerequisites(prerequisites)
             else:
-                LOG.debug("No diagnostic prerequisites configured!")
+                _log.debug("No diagnostic prerequisites configured!")
             self.starting_base()
 
     def starting_base(self, **kwargs):
@@ -475,10 +487,10 @@ class ProactiveDiagnostics(Agent):
         # and pass it a configuration (diagnostic) and a reference to the
         # ProactiveDiagnostic.
         for diagnostic in self.diagnostics:
-            LOG.debug("Configure %s", diagnostic.get("name"))
+            _log.debug("Configure %s", diagnostic.get("name"))
             self.diagnostics_container.append(Diagnostic(diagnostic, self))
         for device in self.device_topics_list:
-            LOG.debug("Subscribing to %s", device)
+            _log.debug("Subscribing to %s", device)
             self.vip.pubsub.subscribe(peer="pubsub",
                                       prefix=device,
                                       callback=self.new_data,
@@ -494,9 +506,9 @@ class ProactiveDiagnostics(Agent):
         :return: None
         """
         if not self.check_prerequisites():
-            LOG.debug("Prerequisites not met!")
+            _log.debug("Prerequisites not met!")
         else:
-            LOG.debug("Prerequisites met!")
+            _log.debug("Prerequisites met!")
             # Call each Diagnostic instance run method.
             for diagnostic in self.diagnostics_container:
                 diagnostic.run()
@@ -537,14 +549,14 @@ class ProactiveDiagnostics(Agent):
                 try:
                     avg_data.append((key, mean(value)))
                 except ValueError as ex:
-                    LOG.warning("Exception prerequisites %s", ex)
-                    LOG.warning("Not enough data to verify "
+                    _log.warning("Exception prerequisites %s", ex)
+                    _log.warning("Not enough data to verify "
                                 "diagnostic prerequisites: %s", key)
                     return False
             for condition in self.prerequisites_expr_list:
                 evaluation = condition.subs(avg_data)
                 prerequisite_eval_list.append(evaluation)
-                LOG.debug("Prerequisite %s evaluation: %s",
+                _log.debug("Prerequisite %s evaluation: %s",
                           condition, evaluation)
             if prerequisite_eval_list:
                 if False in prerequisite_eval_list:
@@ -568,23 +580,23 @@ class ProactiveDiagnostics(Agent):
         :return:
         """
         # topic of form:  devices/campus/building/device
-        LOG.info("Data Received for %s", topic)
+        _log.info("Data Received for %s", topic)
 
         data = message[0]
         for point in self.prerequisites_data_required:
             if point in data:
-                LOG.debug("Point %s - for device - %s added "
+                _log.debug("Point %s - for device - %s added "
                           "to prerequisites array.", point, topic)
                 self.prerequisites_data_required[point].append(data[point])
                 # keep track of last 5 measurements for evaluation of
                 # diagnostic global prerequisites
                 self.prerequisites_data_required[point] = \
                     self.prerequisites_data_required[point][-5:]
-                LOG.debug("Prerequisite data %s.",
+                _log.debug("Prerequisite data %s.",
                           self.prerequisites_data_required)
             else:
-                LOG.warning("Possible Prerequisite data configuration error!")
-                LOG.warning("Point - %s for device - %s not available. "
+                _log.warning("Possible Prerequisite data configuration error!")
+                _log.warning("Point - %s for device - %s not available. "
                             "Check configuration", point, topic)
 
 
@@ -593,8 +605,8 @@ def main():
     try:
         vip_main(ProactiveDiagnostics, version=__version__)
     except Exception as exception:
-        LOG.exception("unhandled exception")
-        LOG.error(repr(exception))
+        _log.exception("unhandled exception")
+        _log.error(repr(exception))
 
 
 if __name__ == "__main__":
