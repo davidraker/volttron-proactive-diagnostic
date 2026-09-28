@@ -17,7 +17,7 @@ show_error_codes = true
 exclude = ['docs/']
 
 [tool.poetry]
-name = "volttron-applications-proactive-diagnostic"
+name = "volttron-proactive-diagnostic"
 version = "1.1.0"
 description = "The Proactive Diagnostic agent allows one to configure proactive diagnostics for nearly any building system."
 authors = ["VOLTTRON Team <volttron@pnnl.gov>"]
@@ -59,7 +59,7 @@ Sphinx = "^4.5.0"
 sphinx-rtd-theme = "^1.0.0"
 
 [tool.poetry.scripts]
-volttron-actuator = "actuator.agent:main"
+volttron-proactive-diagnostic = "proactive_diagnostic.agent:main"
 
 [tool.yapf]
 based_on_style = "pep8"
